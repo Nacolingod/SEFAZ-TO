@@ -8,65 +8,14 @@ import html
 import json
 import re
 import os
+import mimetypes
 
 ROOT = Path(__file__).resolve().parent
 CACHE_FILE = ROOT / "updates-cache.json"
-LIVE_SCRIPT = """
-<script>
-(() => {
-    const modules = {
-        constitucional: ['Controle de constitucionalidade', ['O controle difuso ocorre, em regra:', 'Em caso concreto', 'Somente no Senado', 'Antes da lei existir', 'Apenas por decreto']],
-        tributario: ['Princípios tributários', ['A legalidade tributária exige:', 'Lei para criar ou aumentar tributo', 'Decreto para todo tributo', 'Autorização judicial', 'Apenas publicação em jornal']],
-        contabilidade: ['Patrimônio e contas', ['O ativo reúne:', 'Bens e direitos', 'Somente dívidas', 'Apenas despesas', 'Somente capital']]
-    };
-    const saved = JSON.parse(localStorage.getItem('rota-sefaz-progress') || '{}');
-    const panel = document.querySelector('#simulado');
-        let cards = [...document.querySelectorAll('.reading-card')];
-        if (!cards.length && panel) {
-            const library = document.createElement('section');
-            library.className = 'panel';
-            library.innerHTML = '<div class="heading"><div><p class="eyebrow accent">BASE DE ESTUDO</p><h2>Materiais de leitura</h2></div><span class="mono">03 módulos</span></div><div class="reading-list"><button class="reading-card" data-reading="constitucional"><span>DIREITO</span><b>Controle de constitucionalidade</b></button><button class="reading-card" data-reading="tributario"><span>TRIBUTÁRIO</span><b>Princípios tributários</b></button><button class="reading-card" data-reading="contabilidade"><span>CONTABILIDADE</span><b>Patrimônio e contas</b></button></div><div class="reading-detail">Selecione um módulo para abrir o material.</div>';
-            panel.before(library);
-            cards = [...library.querySelectorAll('.reading-card')];
-        }
-    let key = 'constitucional', question = 0, score = 0, answered = false;
-    function meters() {
-        cards.forEach(card => {
-            const percent = Math.round(((saved[card.dataset.reading]?.score || 0) / 5) * 100);
-            let label = card.querySelector('.live-progress');
-            if (!label) { label = document.createElement('small'); label.className = 'live-progress'; card.append(label); }
-            label.textContent = `progresso real: ${percent}%`;
-        });
-    }
-    function render() {
-        const item = modules[key], choices = item[1].slice(1), correct = 0;
-        answered = false;
-        panel.innerHTML = `<div class="quiz-copy"><p class="eyebrow accent">SIMULADO · ${item[0].toUpperCase()} · QUESTÃO ${question + 1} / 5</p><h2>${item[1][0]}</h2><p>Escolha uma alternativa. O resultado atualiza o medidor deste material.</p><div class="quiz-options">${choices.map((choice, index) => `<button class="quiz-option" data-choice="${index}">${String.fromCharCode(65 + index)}. ${choice}</button>`).join('')}</div><div class="quiz-feedback" id="liveFeedback"></div><button class="button" id="liveNext" disabled>${question === 4 ? 'Concluir' : 'Próxima'} →</button></div><div class="quiz-preview"><span>MATERIAL ATIVO</span><p>${item[0]}</p><div>5 questões por módulo · progresso salvo neste aparelho.</div></div>`;
-        panel.querySelectorAll('[data-choice]').forEach(button => button.onclick = () => {
-            if (answered) return;
-            answered = true;
-            const selected = Number(button.dataset.choice);
-            if (selected === correct) { score += 1; button.classList.add('correct'); $('#liveFeedback').textContent = 'Correto. O conceito foi identificado.'; }
-            else { button.classList.add('wrong'); panel.querySelector('[data-choice="0"]').classList.add('correct'); $('#liveFeedback').textContent = 'Revise o material e compare as alternativas.'; }
-            saved[key] = { score, answered: question + 1 };
-            localStorage.setItem('rota-sefaz-progress', JSON.stringify(saved));
-            meters();
-            $('#liveNext').disabled = false;
-        });
-        $('#liveNext').onclick = () => { if (question < 4) { question += 1; render(); } else { $('#liveFeedback').textContent = `Módulo concluído: ${score}/5 acertos.`; $('#liveNext').disabled = true; } };
-    }
-    window.addEventListener('load', () => {
-        const style = document.createElement('style'); style.textContent = '.live-progress{display:block;color:#1e694f;font:9px monospace;margin-top:8px}'; document.head.append(style);
-        cards.forEach(card => card.addEventListener('click', () => { key = card.dataset.reading; question = 0; score = saved[key]?.score || 0; render(); panel.scrollIntoView({ behavior: 'smooth' }); }));
-        meters();
-    });
-})();
-</script>
-"""
 SOURCES = [
     {"id": "sefaz", "name": "SEFAZ Tocantins", "url": "https://www.to.gov.br/sefaz", "kind": "órgão oficial"},
     {"id": "diario", "name": "Diário Oficial do Estado", "url": "https://diariooficial.to.gov.br/", "kind": "atos e editais"},
-    {"id": "gov", "name": "Portal Gov.br", "url": "https://www.gov.br/pt-br/servicos/acompanhar-publicacoes-do-diario-oficial-da-uniao", "kind": "serviços públicos"},
+    {"id": "gov", "name": "Portal Gov.br", "url": "https://www.gov.br/receitafederal/pt-br", "kind": "serviços públicos"},
 ]
 
 
@@ -109,7 +58,7 @@ def check_updates(force=False):
     cache = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "items": items,
-        "changed": any(item.get("fingerprint") and item.get("fingerprint") != previous.get(item["id"]) for item in items),
+        "changed": any(item.get("fingerprint") and previous.get(item["id"]) and item["fingerprint"] != previous[item["id"]] for item in items),
     }
     save_cache(cache)
     return cache
@@ -135,14 +84,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         target = ROOT / ("rota-sefaz-to.html" if path == "/" else path.lstrip("/"))
         if target.exists() and target.is_file() and ROOT in target.parents:
-            content_type = "text/html; charset=utf-8" if target.suffix == ".html" else "text/plain; charset=utf-8"
+            content_type = (mimetypes.guess_type(target.name)[0] or "application/octet-stream") + "; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.end_headers()
             content = target.read_bytes()
-            if target.name == "rota-sefaz-to.html":
-                content = content.replace(b"renderMaterialQuiz()}}}document.querySelectorAll", b"renderMaterialQuiz()}};document.querySelectorAll")
-                content = content.replace(b"</body>", LIVE_SCRIPT.encode("utf-8") + b"</body>")
             self.wfile.write(content)
             return
         self.send_error(404)
