@@ -15,7 +15,6 @@ CACHE_FILE = ROOT / "updates-cache.json"
 SOURCES = [
     {"id": "sefaz", "name": "SEFAZ Tocantins", "url": "https://www.to.gov.br/sefaz", "kind": "órgão oficial"},
     {"id": "diario", "name": "Diário Oficial do Estado", "url": "https://diariooficial.to.gov.br/", "kind": "atos e editais"},
-    {"id": "gov", "name": "Portal Gov.br", "url": "https://www.gov.br/receitafederal/pt-br", "kind": "serviços públicos"},
 ]
 
 
@@ -35,7 +34,7 @@ def save_cache(cache):
 def fetch_source(source):
     request = Request(source["url"], headers={"User-Agent": "Rota-SEFAZ-TO/1.0"})
     try:
-        with urlopen(request, timeout=15) as response:
+        with urlopen(request, timeout=8) as response:
             content = response.read(250000).decode("utf-8", errors="ignore")
         text = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>", " ", content, flags=re.I)
         text = re.sub(r"<[^>]+>", " ", text)
@@ -51,14 +50,22 @@ def check_updates(force=False):
     checked_at = cache.get("checked_at")
     if not force and checked_at:
         checked = datetime.fromisoformat(checked_at)
-        if (datetime.now(timezone.utc) - checked).total_seconds() < 7 * 86400:
+        retry_seconds = 3600 if any(not item.get("ok") for item in cache.get("items", [])) else 7 * 86400
+        if (datetime.now(timezone.utc) - checked).total_seconds() < retry_seconds:
             return cache
     previous = {item["id"]: item.get("fingerprint") for item in cache.get("items", [])}
     items = [fetch_source(source) for source in SOURCES]
+    for item in items:
+        if not item["ok"] and previous.get(item["id"]):
+            item["fingerprint"] = previous[item["id"]]
+    failed_sources = [item["name"] for item in items if not item["ok"]]
+    changed = any(item["ok"] and previous.get(item["id"]) and item["fingerprint"] != previous[item["id"]] for item in items)
     cache = {
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "items": items,
-        "changed": any(item.get("fingerprint") and previous.get(item["id"]) and item["fingerprint"] != previous[item["id"]] for item in items),
+        "changed": changed,
+        "failed_sources": failed_sources,
+        "status": "verification_failed" if failed_sources else "changed" if changed else "ok",
     }
     save_cache(cache)
     return cache
