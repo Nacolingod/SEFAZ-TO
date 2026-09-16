@@ -21,7 +21,14 @@ LIVE_SCRIPT = """
     };
     const saved = JSON.parse(localStorage.getItem('rota-sefaz-progress') || '{}');
     const panel = document.querySelector('#simulado');
-    const cards = [...document.querySelectorAll('.reading-card')];
+        let cards = [...document.querySelectorAll('.reading-card')];
+        if (!cards.length && panel) {
+            const library = document.createElement('section');
+            library.className = 'panel';
+            library.innerHTML = '<div class="heading"><div><p class="eyebrow accent">BASE DE ESTUDO</p><h2>Materiais de leitura</h2></div><span class="mono">03 módulos</span></div><div class="reading-list"><button class="reading-card" data-reading="constitucional"><span>DIREITO</span><b>Controle de constitucionalidade</b></button><button class="reading-card" data-reading="tributario"><span>TRIBUTÁRIO</span><b>Princípios tributários</b></button><button class="reading-card" data-reading="contabilidade"><span>CONTABILIDADE</span><b>Patrimônio e contas</b></button></div><div class="reading-detail">Selecione um módulo para abrir o material.</div>';
+            panel.before(library);
+            cards = [...library.querySelectorAll('.reading-card')];
+        }
     let key = 'constitucional', question = 0, score = 0, answered = false;
     function meters() {
         cards.forEach(card => {
@@ -135,7 +142,7 @@ class Handler(BaseHTTPRequestHandler):
             content = target.read_bytes()
             if target.name == "rota-sefaz-to.html":
                 content = content.replace(b"renderMaterialQuiz()}}}document.querySelectorAll", b"renderMaterialQuiz()}};document.querySelectorAll")
-                content += LIVE_SCRIPT.encode("utf-8")
+                content = content.replace(b"</body>", LIVE_SCRIPT.encode("utf-8") + b"</body>")
             self.wfile.write(content)
             return
         self.send_error(404)
