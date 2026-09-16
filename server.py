@@ -87,7 +87,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.end_headers()
-            self.wfile.write(target.read_bytes())
+            content = target.read_bytes()
+            if target.name == "rota-sefaz-to.html":
+                content = content.replace(b"renderMaterialQuiz()}}}document.querySelectorAll", b"renderMaterialQuiz()}};document.querySelectorAll")
+            self.wfile.write(content)
             return
         self.send_error(404)
 
